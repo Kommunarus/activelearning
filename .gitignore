@@ -1,0 +1,5 @@
+*.pth
+*.hdf5
+*.jpg
+*.ckpt
+*.png

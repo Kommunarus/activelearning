@@ -1,0 +1,24 @@
+version: '3'
+services:
+  ml_service:
+    restart: always
+    image: ml
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - /home/neptun/PycharmProjects/Lipreading_using_Temporal_Convolutional_Networks/out:/out
+      - /home/neptun/PycharmProjects/Lipreading_using_Temporal_Convolutional_Networks/bd:/bd
+      - /home/neptun/PycharmProjects/Lipreading_using_Temporal_Convolutional_Networks/local:/local
+    ports:
+      - "5000:5000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+networks:
+  default:
+    driver: bridge

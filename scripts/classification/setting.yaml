@@ -1,0 +1,5 @@
+randomseed: 42
+first: 0.01
+val: 0.05
+n_epoch: 15
+num_for_al: 100

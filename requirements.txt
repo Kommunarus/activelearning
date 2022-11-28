@@ -1,0 +1,11 @@
+torch
+torchvision
+scikit-image
+scikit-learn
+pyyaml
+matplotlib
+h5py
+pycocotools
+flask
+flask_cors
+flask_restful
