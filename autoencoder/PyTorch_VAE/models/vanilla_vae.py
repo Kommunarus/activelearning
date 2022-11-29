@@ -161,12 +161,15 @@ class VanillaVAE(BaseVAE):
         a1 = torch.mean(torch.abs(recons - input), [0, 1])
         recons_loss = torch.mean(a1 * self.mask)
         # recons_loss =F.mse_loss(recons, input)
+        b1 = torch.mean(torch.abs(recons - input), 1)
+        b2 = torch.mean(b1 * self.mask.repeat(input.shape[0], 1, 1), [1, 2]).tolist()
 
 
         kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
 
         loss = recons_loss + kld_weight * kld_loss
-        return {'loss': loss, 'Reconstruction_Loss': recons_loss.detach(), 'KLD': -kld_loss.detach()}
+        return {'loss': loss, 'Reconstruction_Loss': recons_loss.detach(), 'KLD': -kld_loss.detach(),
+                'Reconstruction_Loss_batch': b2}
 
     def sample(self,
                num_samples:int,

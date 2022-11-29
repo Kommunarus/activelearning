@@ -92,6 +92,26 @@ class Dataset_flowers(Dataset):
             image = self.transform(image)
         return image, idx
 
+class Dataset_flowers_list(Dataset):
+    def __init__(self, path_to_dataset_train, transform, dict_id, training_data):
+        self.data_dir = path_to_dataset_train
+        self.transform = transform
+        self.data = [os.path.join(path_to_dataset_train, dict_id[x][0], x) for x in training_data]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        file = self.data[idx]
+        image = Image.open(file)
+        image = image.resize((224, 224))
+
+        if len(image.size) == 2:
+            image = image.convert('RGB')
+        # np_img = np.array(image)
+        if self.transform:
+            image = self.transform(image)
+        return image, idx
 
 class OxfordPets(Dataset):
     """
@@ -144,6 +164,8 @@ class VAEDataset(LightningDataModule):
         pin_memory: bool = False,
         filter_label=None,
         limit=-1,
+        dict_id=None,
+        training_data=None,
         **kwargs,
     ):
         super().__init__()
@@ -156,6 +178,8 @@ class VAEDataset(LightningDataModule):
         self.pin_memory = pin_memory
         self.filter_label = filter_label
         self.limit = limit
+        self.dict_id = dict_id
+        self.training_data = training_data
 
     def setup(self, stage: Optional[str] = None) -> None:
         train_transforms = transforms.Compose([
@@ -170,10 +194,10 @@ class VAEDataset(LightningDataModule):
                                             transforms.Resize(self.patch_size),
                                             transforms.ToTensor(),])
         
-        self.train_dataset = Dataset_flowers(self.data_dir, split='train', transform=train_transforms,
-                                             filter_label=self.filter_label, limit=self.limit)
-        self.val_dataset = Dataset_flowers(self.data_dir, split='test', transform=val_transforms,
-                                           filter_label=self.filter_label, limit=-1)
+        self.train_dataset = Dataset_flowers_list(self.data_dir, transform=train_transforms,
+                                             dict_id=self.dict_id, training_data=self.training_data)
+        self.val_dataset = Dataset_flowers_list(self.data_dir, transform=val_transforms,
+                                           dict_id=self.dict_id, training_data=self.training_data)
 #       ===============================================================
         
     def train_dataloader(self) -> DataLoader:

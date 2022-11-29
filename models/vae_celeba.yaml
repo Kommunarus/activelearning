@@ -1,7 +1,7 @@
 model_params:
   name: 'VanillaVAE'
   in_channels: 3
-  latent_dim: 64
+  latent_dim: 24
 
 data_params:
   data_path: "/home/neptun/PycharmProjects/datasets/celeba"
@@ -17,7 +17,7 @@ data_params:
 exp_params:
   LR: 0.001
   weight_decay: 0.0
-  scheduler_gamma: 0.98
+  scheduler_gamma: 0.99
   kld_weight: 0.00001
   manual_seed: 1265
 

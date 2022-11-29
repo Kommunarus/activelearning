@@ -41,7 +41,8 @@ class VAEXperiment(pl.LightningModule):
                                               optimizer_idx=optimizer_idx,
                                               batch_idx = batch_idx)
 
-        self.log_dict({key: val.item() for key, val in train_loss.items()}, sync_dist=True)
+        self.log_dict({key: val.item() for key, val in train_loss.items() if key != 'Reconstruction_Loss_batch'},
+                      sync_dist=True)
 
         return train_loss['loss']
 
@@ -55,11 +56,13 @@ class VAEXperiment(pl.LightningModule):
                                             optimizer_idx = optimizer_idx,
                                             batch_idx = batch_idx)
 
-        self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items()}, sync_dist=True)
+        self.log_dict({f"val_{key}": val.item() for key, val in val_loss.items() if key != 'Reconstruction_Loss_batch'},
+                      sync_dist=True)
 
         
     def on_validation_end(self) -> None:
-        self.sample_images()
+        pass
+        # self.sample_images()
         
     def sample_images(self):
         # Get sample reconstruction image            

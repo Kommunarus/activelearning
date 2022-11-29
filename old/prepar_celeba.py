@@ -24,9 +24,11 @@ with open(file_class) as f:
                 analitik[head_l[i]] = analitik[head_l[i]] + 1
             if rows_l[i+1] == '-1':
                 analitik[head_l[i]] = analitik[head_l[i]] - 1
-        if rows_l[21] == '-1':
+
+
+        if rows_l[16] == '-1':
             out_0.append(rows_l[0])
-        if rows_l[21] == '1':
+        if rows_l[16] == '1':
             out_1.append(rows_l[0])
 
 

@@ -14,6 +14,9 @@ import random
 import yaml
 from autoencoder.PyTorch_VAE.models import *
 from autoencoder.PyTorch_VAE.experiment import VAEXperiment
+from autoencoder.PyTorch_VAE.run_remote import train_vae
+from pytorch_lightning.utilities.seed import seed_everything
+from autoencoder.PyTorch_VAE.dataset import VAEDataset
 
 
 class Feature:
@@ -33,9 +36,9 @@ class Feature:
         return self.efficientnet(x)
 
 class Feature_vae:
-    def __init__(self, device):
+    def __init__(self, device, path_check='/home/neptun/PycharmProjects/activelearning/models/last.ckpt'):
         path_yaml = '/home/neptun/PycharmProjects/activelearning/models/vae_celeba.yaml'
-        path_check = '/home/neptun/PycharmProjects/activelearning/models/last.ckpt'
+        # path_check = '/home/neptun/PycharmProjects/activelearning/models/last.ckpt'
         with open(path_yaml, 'r') as file:
             try:
                 config = yaml.safe_load(file)
@@ -51,7 +54,10 @@ class Feature_vae:
         self.model = experiment.model
 
     def predict(self, x):
-        return self.model.encode(x)
+        return self.model(x)
+
+    def loss_function(self, *args, **kwargs):
+        return self.model.loss_function(*args, **kwargs)
 
 def train_model(model_feacher, items_train, items_val, device, path_to_dir_train, path_to_dataset_val,
                 path_to_dataset_numpy, num_labels):
@@ -264,6 +270,43 @@ def get_new_cluster_samples(device, unlabeled_data, model_feacher, path_to_dir, 
     out = [x[0] for x in out]
 
     return out
+
+def get_vae_samples(device, dict_id, training_data, unlabeled_data, path_to_dir, path_to_dataset_numpy, num_sample):
+    # train vae
+    path_yaml_celeba = '/home/neptun/PycharmProjects/activelearning/models/vae_celeba.yaml'
+
+    path_model_vae = train_vae(path_yaml_celeba, dict_id, training_data, path_to_dir)
+    current_vae = Feature_vae(device, path_model_vae)
+    with open(path_yaml_celeba, 'r') as file:
+        try:
+            config = yaml.safe_load(file)
+        except yaml.YAMLError as exc:
+            print(exc)
+    seed_everything(config['exp_params']['manual_seed'], True)
+    config['exp_params']['M_N'] = config['exp_params']['kld_weight']
+    # config['data_params']['train_batch_size'] = 1
+    config["data_params"]['filter_label'] = []
+    config["data_params"]['limit'] = -1
+    config["data_params"]['dict_id'] = dict_id
+    config["data_params"]['training_data'] = unlabeled_data
+    config["data_params"]['data_path'] = path_to_dir
+
+    data = VAEDataset(**config["data_params"])
+    # data = VAEDataset(**config["data_params"], pin_memory=len(config['trainer_params']['gpus']) != 0)
+
+    data.setup()
+
+    err = []
+    ind = []
+    train_dataset = data.train_dataloader()
+    for x, l in train_dataset:
+        args = current_vae.predict(x.to('cuda:0'))
+        loss = current_vae.loss_function(*args, **config['exp_params'])
+        err = err + loss['Reconstruction_Loss_batch']
+        ind = ind + [unlabeled_data[x] for x in l.tolist()]
+    out = {k: v for k, v in zip(ind, err)}
+    a = sorted(out.items(), key=lambda x: x[1], reverse=True)
+    return [x[0] for x in a][:num_sample]
 
 def get_representative_cluster_samples(device, training_data, unlabeled_data, model_feacher,
                                        path_to_dir_train, path_to_dataset_val, path_to_dataset_numpy, num_sample=10,
@@ -480,17 +523,18 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
     else:
         device = 'cpu'
 
-    model_feacher = Feature(device)
-    model_feacher_vae = Feature_vae(device)
+    model_feacher_resnet = Feature(device)
+    # model_feacher_vae = Feature_vae(device)
     dict_id, num_labels = read_dirs_dataset(path_to_dataset_train)
 
     all_items = [x for x in dict_id.keys()]
+
 
     random.seed(42)
     # del_labels = random.choices(list(range(num_labels)), k=100)
     del_labels = []
     labeled_data = sorted(prepare_items(limit=num_train_for_model0,
-                                 train=True, seed=42, files=dict_id, test_size=test_size,
+                                 train=True, files=dict_id, test_size=test_size,
                                  del_labels=del_labels))
 
     labeled_data_first = copy.deepcopy(labeled_data)
@@ -499,17 +543,17 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
         unlabeled_data = list(set(all_items) - set(labeled_data) - set(items_val))
     else:
         dict_id_val, num_labels_val = read_dirs_dataset(path_to_dataset_val)
-        items_val = prepare_items(limit=len(dict_id_val), train=True, seed=42, files=dict_id_val, test_size=0)
+        items_val = prepare_items(limit=len(dict_id_val), train=True, files=dict_id_val, test_size=0)
         unlabeled_data = list(set(all_items) - set(labeled_data))
     items_val = sorted(items_val)
     unlabeled_data = sorted(unlabeled_data)
     add_to_label_items = []
 
-    use_first_model = False
+    use_first_model = True
     if use_first_model:
         if train:
             print('train zero model', end=' ')
-            model0, f1 = train_model(model_feacher, labeled_data, items_val, device, path_to_dataset_train,
+            model0, f1 = train_model(model_feacher_resnet, labeled_data, items_val, device, path_to_dataset_train,
                                      path_to_dataset_val, path_to_dataset_numpy, num_labels)
             torch.save(model0.state_dict(), f'./models/model_weights_0.pth')
             print('f1 zero model {}'.format(f1))
@@ -529,46 +573,51 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
             for method, num_sample in zip(methods, num_samples):
                 # AL
                 if method == 'uncertainty_margin':
-                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher, unlabeled_data_copy,
+                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher_resnet, unlabeled_data_copy,
                                                               method='margin',
                                                               num_sample=num_sample, path_to_dir=path_to_dataset_train,
                                                               num_labels=num_labels,
                                                               path_to_dataset_numpy=path_to_dataset_numpy)
                 elif method == 'uncertainty_least':
-                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher, unlabeled_data_copy,
+                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher_resnet, unlabeled_data_copy,
                                                               method='least',
                                                               num_sample=num_sample, path_to_dir=path_to_dataset_train,
                                                               num_labels=num_labels,
                                                               path_to_dataset_numpy=path_to_dataset_numpy)
                 elif method == 'uncertainty_ratio':
-                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher, unlabeled_data_copy,
+                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher_resnet, unlabeled_data_copy,
                                                               method='ratio',
                                                               num_sample=num_sample, path_to_dir=path_to_dataset_train,
                                                               num_labels=num_labels,
                                                               path_to_dataset_numpy=path_to_dataset_numpy)
                 elif method == 'uncertainty_entropy':
-                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher, unlabeled_data_copy,
+                    add_to_label_items = sampling_uncertainty(model0, device, model_feacher_resnet, unlabeled_data_copy,
                                                               method='entropy',
                                                               num_sample=num_sample, path_to_dir=path_to_dataset_train,
                                                               num_labels=num_labels,
                                                               path_to_dataset_numpy=path_to_dataset_numpy)
                 elif method == 'representative':
-                    add_to_label_items = get_representative_samples(device, labeled_data, unlabeled_data, model_feacher,
+                    add_to_label_items = get_representative_samples(device, labeled_data, unlabeled_data, model_feacher_resnet,
                                                                     num_sample=num_sample, path_to_dir=path_to_dataset_train)
                 elif method == 'cluster':
-                    add_to_label_items = get_cluster_samples(device, unlabeled_data_copy, model_feacher,
+                    add_to_label_items = get_cluster_samples(device, unlabeled_data_copy, model_feacher_resnet,
                                                              num_clusters=num_clusters,
                                                              max_epochs=20,
                                                              num_sample=num_sample, path_to_dir=path_to_dataset_train,
                                                              path_to_dataset_numpy=path_to_dataset_numpy)
-                elif method == 'new_cluster':
-                    add_to_label_items = get_new_cluster_samples(device, unlabeled_data_copy, model_feacher_vae,
-                                                             num_clusters=num_clusters,
-                                                             num_sample=num_sample, path_to_dir=path_to_dataset_train,
-                                                             path_to_dataset_numpy=path_to_dataset_numpy_vae)
+                # elif method == 'new_cluster':
+                #     add_to_label_items = get_new_cluster_samples(device, unlabeled_data_copy, model_feacher_vae,
+                #                                              num_clusters=num_clusters,
+                #                                              num_sample=num_sample, path_to_dir=path_to_dataset_train,
+                #                                              path_to_dataset_numpy=path_to_dataset_numpy_vae)
+                elif method == 'vae':
+                    add_to_label_items = get_vae_samples(device, dict_id, labeled_data, unlabeled_data_copy,
+                                                                 num_sample=num_sample,
+                                                                 path_to_dir=path_to_dataset_train,
+                                                                 path_to_dataset_numpy=path_to_dataset_numpy_vae)
                 elif method == 'atlas':
                     add_to_label_items = get_atlas_samples(model0, device, unlabeled_data_copy, items_val,
-                                                           model_feacher,
+                                                           model_feacher_resnet,
                                                            num_sample=num_sample,
                                                            path_to_dir_train=path_to_dataset_train,
                                                            path_to_dataset_val = path_to_dataset_val,
@@ -577,7 +626,7 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
                                                            )
                 elif method == 'representative_cluster':
                     add_to_label_items = get_representative_cluster_samples(device, labeled_data, unlabeled_data_copy,
-                                                                            model_feacher,
+                                                                            model_feacher_resnet,
                                                                             num_sample=num_sample,
                                                                             num_clusters=num_clusters,
                                                                             max_epochs=30,
@@ -585,16 +634,20 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
                                                                             path_to_dataset_val=path_to_dataset_val,
                                                                             path_to_dataset_numpy=path_to_dataset_numpy,
                                                                             )
+                else:
+                    add_to_label_items = []
+
 
                 unlabeled_data_copy = add_to_label_items
             labeled_data = list(set(labeled_data + add_to_label_items))
             unlabeled_data = list(set(unlabeled_data) - set(add_to_label_items))
 
             # print('train model', end=' ')
-            model0, metricval_ao = train_model(model_feacher, labeled_data, items_val, device, path_to_dataset_train,
+            model0, metricval_ao = train_model(model_feacher_resnet, labeled_data, items_val, device,
+                                               path_to_dataset_train,
                                                path_to_dataset_val, path_to_dataset_numpy, num_labels)
-            torch.save(model0.state_dict(), f'./models/model_{ne+1}.pth')
-            # print('f1 model {}'.format(f1))
+            # torch.save(model0.state_dict(), f'./models/model_{ne+1}.pth')
+            print('f1 model {}'.format(metricval_ao))
 
     outdict = {'data': add_to_label_items}
     if check:
@@ -602,7 +655,7 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
             labeled_data2 = labeled_data
             # labeled_data2 = labeled_data + [x[0] for x in add_to_label_items]
             print('train al model. len label {}.'.format(len(labeled_data2)), end=' ')
-            # _, metricval_ao = train_model(model_feacher, labeled_data2, items_val, device, path_to_dataset, num_labels)
+            # _, metricval_ao = train_model(model_feacher_resnet, labeled_data2, items_val, device, path_to_dataset, num_labels)
             print('f1 al model {}'.format(metricval_ao))
             outdict['metricval_ao'] = metricval_ao
 
@@ -614,7 +667,7 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
             else:
                 labeled_data2 = labeled_data_first + random.sample(unlabeled_data, k=n_epoch*sum(num_samples))
             # print('train rnd model. len label {}.'.format(len(labeled_data2)), end=' ')
-            _, metricval_rnd = train_model(model_feacher, labeled_data2, items_val, device, path_to_dataset_train,
+            _, metricval_rnd = train_model(model_feacher_resnet, labeled_data2, items_val, device, path_to_dataset_train,
                                            path_to_dataset_val, path_to_dataset_numpy,
                                            num_labels)
             print('f1 rnd model {}'.format(metricval_rnd))
@@ -641,11 +694,11 @@ if __name__ == '__main__':
     path_to_dataset_numpy_vae = ''
 
 
-    k = 10
-    # listnum = (['20000']*k + ['100']*k)
-    listnum = (['200'] )
+    k = 15
+    # listnum = (['100'] + ['500'] + ['1000'] + ['5000'] + ['10000'] + ['20000'])
+    listnum = (['2500'] )
     # listnum = ['100']
-    # list_methods = ['new_cluster',]
+    list_methods = ['vae', ]
     # list_methods = ['uncertainty_margin',  'uncertainty_entropy', 'uncertainty_least', 'uncertainty_ratio',]
     num_f1 = []
     for i, num in enumerate(listnum):
@@ -656,7 +709,7 @@ if __name__ == '__main__':
             print(num, j, end=' ')
             outdict = for_api('', 'cuda', path_to_dataset_train, path_to_dataset_val, path_to_dataset_numpy,
                     path_to_dataset_numpy_vae,
-                    train=False, num_train_for_model0=10,
+                    train=False, num_train_for_model0=1,
                     rawnum_samples=num, test_size=0.2, n_epoch=1, check=True, start_al=False, check_rnd=True,
                     num_clusters=0)
             num_f1.append(outdict['metricval_rnd'])
