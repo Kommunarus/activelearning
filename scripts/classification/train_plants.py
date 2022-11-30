@@ -271,11 +271,21 @@ def get_new_cluster_samples(device, unlabeled_data, model_feacher, path_to_dir, 
 
     return out
 
-def get_vae_samples(device, dict_id, training_data, unlabeled_data, path_to_dir, path_to_dataset_numpy, num_sample):
-    # train vae
-    path_yaml_celeba = '/home/neptun/PycharmProjects/activelearning/models/vae_celeba.yaml'
+def get_vae_samples(device, dict_id, training_data, unlabeled_data, path_to_dir, num_sample, num_labels):
+    if num_labels == 2:
+        out = []
+        for i in range(2):
+            out = out + train_vae_pod(device, dict_id, training_data, unlabeled_data, path_to_dir, num_sample//2, [i])
+        if num_sample-len(out) > 0:
+            res = list(set(unlabeled_data) - set(out))
+            out = out + random.sample(res, k=num_sample-len(out))
+    else:
+        out = train_vae_pod(device, dict_id, training_data, unlabeled_data, path_to_dir, num_sample, [])
+    return out
 
-    path_model_vae = train_vae(path_yaml_celeba, dict_id, training_data, path_to_dir)
+def train_vae_pod(device, dict_id, training_data, unlabeled_data, path_to_dir, num_sample, filter_label):
+    path_yaml_celeba = '/home/neptun/PycharmProjects/activelearning/models/vae_celeba.yaml'
+    path_model_vae = train_vae(path_yaml_celeba, dict_id, training_data, path_to_dir, filter_label)
     current_vae = Feature_vae(device, path_model_vae)
     with open(path_yaml_celeba, 'r') as file:
         try:
@@ -284,16 +294,12 @@ def get_vae_samples(device, dict_id, training_data, unlabeled_data, path_to_dir,
             print(exc)
     seed_everything(config['exp_params']['manual_seed'], True)
     config['exp_params']['M_N'] = config['exp_params']['kld_weight']
-    # config['data_params']['train_batch_size'] = 1
     config["data_params"]['filter_label'] = []
     config["data_params"]['limit'] = -1
     config["data_params"]['dict_id'] = dict_id
     config["data_params"]['training_data'] = unlabeled_data
     config["data_params"]['data_path'] = path_to_dir
-
     data = VAEDataset(**config["data_params"])
-    # data = VAEDataset(**config["data_params"], pin_memory=len(config['trainer_params']['gpus']) != 0)
-
     data.setup()
 
     err = []
@@ -612,9 +618,9 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
                 #                                              path_to_dataset_numpy=path_to_dataset_numpy_vae)
                 elif method == 'vae':
                     add_to_label_items = get_vae_samples(device, dict_id, labeled_data, unlabeled_data_copy,
+                                                                 num_labels=num_labels,
                                                                  num_sample=num_sample,
-                                                                 path_to_dir=path_to_dataset_train,
-                                                                 path_to_dataset_numpy=path_to_dataset_numpy_vae)
+                                                                 path_to_dir=path_to_dataset_train)
                 elif method == 'atlas':
                     add_to_label_items = get_atlas_samples(model0, device, unlabeled_data_copy, items_val,
                                                            model_feacher_resnet,
@@ -647,7 +653,7 @@ def for_api(rawmethods, device_arg, path_to_dataset_train, path_to_dataset_val, 
                                                path_to_dataset_train,
                                                path_to_dataset_val, path_to_dataset_numpy, num_labels)
             # torch.save(model0.state_dict(), f'./models/model_{ne+1}.pth')
-            print('f1 model {}'.format(metricval_ao))
+            # print('f1 model {}'.format(metricval_ao))
 
     outdict = {'data': add_to_label_items}
     if check:
@@ -694,25 +700,25 @@ if __name__ == '__main__':
     path_to_dataset_numpy_vae = ''
 
 
-    k = 15
+    k = 3
     # listnum = (['100'] + ['500'] + ['1000'] + ['5000'] + ['10000'] + ['20000'])
-    listnum = (['2500'] )
+    # listnum = (['2500'] )
     # listnum = ['100']
     list_methods = ['vae', ]
     # list_methods = ['uncertainty_margin',  'uncertainty_entropy', 'uncertainty_least', 'uncertainty_ratio',]
     num_f1 = []
-    for i, num in enumerate(listnum):
-    # for method in list_methods:
+    # for i, num in enumerate(listnum):
+    for method in list_methods:
         # t_start = time.time()
         for j in range(k):
             # num_clusters = 40
-            print(num, j, end=' ')
-            outdict = for_api('', 'cuda', path_to_dataset_train, path_to_dataset_val, path_to_dataset_numpy,
+            print(j, end=' ')
+            outdict = for_api(method, 'cuda', path_to_dataset_train, path_to_dataset_val, path_to_dataset_numpy,
                     path_to_dataset_numpy_vae,
-                    train=False, num_train_for_model0=1,
-                    rawnum_samples=num, test_size=0.2, n_epoch=1, check=True, start_al=False, check_rnd=True,
+                    train=False, num_train_for_model0=700,
+                    rawnum_samples='300', test_size=0.2, n_epoch=1, check=True, start_al=True, check_rnd=False,
                     num_clusters=0)
-            num_f1.append(outdict['metricval_rnd'])
+            num_f1.append(outdict['metricval_ao'])
             # t_stop = time.time()
             # print('time work sec: {}'.format(t_stop - t_start))
         # if (i + 1) % k == 0:

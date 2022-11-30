@@ -14,7 +14,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from autoencoder.PyTorch_VAE.dataset import VAEDataset
 # from pytorch_lightning.plugins import DDPPlugin
 
-def train_vae(filename_yaml, dict_id, training_data, path_to_di):
+def train_vae(filename_yaml, dict_id, training_data, path_to_di, filter_label):
     with open(filename_yaml, 'r') as file:
         try:
             config = yaml.safe_load(file)
@@ -37,7 +37,7 @@ def train_vae(filename_yaml, dict_id, training_data, path_to_di):
     experiment = VAEXperiment(model,
                               config['exp_params'])
 
-    config["data_params"]['filter_label'] = []
+    config["data_params"]['filter_label'] = filter_label
     config["data_params"]['limit'] = -1
     config["data_params"]['dict_id'] = dict_id
     config["data_params"]['training_data'] = training_data

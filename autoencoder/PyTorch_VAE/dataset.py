@@ -93,10 +93,25 @@ class Dataset_flowers(Dataset):
         return image, idx
 
 class Dataset_flowers_list(Dataset):
-    def __init__(self, path_to_dataset_train, transform, dict_id, training_data):
+    def __init__(self, path_to_dataset_train, transform, dict_id, training_data, del_labels):
         self.data_dir = path_to_dataset_train
         self.transform = transform
-        self.data = [os.path.join(path_to_dataset_train, dict_id[x][0], x) for x in training_data]
+        data = [os.path.join(path_to_dataset_train, dict_id[x][0], x) for x in training_data]
+
+        if len(del_labels) > 0:
+            list_indx = []
+            # for i, (i1, i2) in enumerate(dict_id.values()):
+            #     if i2 in del_labels:
+            #         list_indx.append(i)
+            for i, row in enumerate(data):
+                basename = os.path.basename(row)
+                if dict_id[basename][1] in del_labels:
+                    list_indx.append(i)
+            list_indx.sort(reverse=True)
+            for indx in list_indx:
+                data.pop(indx)
+        self.data = data
+
 
     def __len__(self):
         return len(self.data)
@@ -195,9 +210,11 @@ class VAEDataset(LightningDataModule):
                                             transforms.ToTensor(),])
         
         self.train_dataset = Dataset_flowers_list(self.data_dir, transform=train_transforms,
-                                             dict_id=self.dict_id, training_data=self.training_data)
+                                             dict_id=self.dict_id, training_data=self.training_data,
+                                             del_labels=self.filter_label, )
         self.val_dataset = Dataset_flowers_list(self.data_dir, transform=val_transforms,
-                                           dict_id=self.dict_id, training_data=self.training_data)
+                                           dict_id=self.dict_id, training_data=self.training_data,
+                                           del_labels=self.filter_label, )
 #       ===============================================================
         
     def train_dataloader(self) -> DataLoader:

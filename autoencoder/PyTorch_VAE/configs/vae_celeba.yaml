@@ -1,7 +1,7 @@
 model_params:
   name: 'VanillaVAE'
   in_channels: 3
-  latent_dim: 24
+  latent_dim: 64
 
 data_params:
   data_path: "/home/neptun/PycharmProjects/datasets/celeba"
@@ -9,21 +9,21 @@ data_params:
   val_batch_size:  64
   patch_size: 64
   num_workers: 4
-  filter_label: 0
-  limit: 5000
+#  filter_label: 0
+#  limit: 5000
 
 
 
 exp_params:
   LR: 0.001
   weight_decay: 0.0
-  scheduler_gamma: 0.996
+  scheduler_gamma: 0.993
   kld_weight: 0.00001
   manual_seed: 1265
 
 trainer_params:
   gpus: [0]
-  max_epochs: 1000
+  max_epochs: 500
 
 logging_params:
   save_dir: "logs/"
